@@ -1,0 +1,52 @@
+// Capstone - Hack CPU
+// Roll no. 2501730411, K = 11
+
+CHIP CPU {
+    IN  inM[16],         // value of M = RAM[A]
+        instruction[16], // current instruction
+        reset;           // 1 = restart the program
+
+    OUT outM[16],        // value to write into M
+        writeM,          // 1 = write into M
+        addressM[15],    // address of M
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // instruction[15] = 0 -> A-instruction, 1 -> C-instruction
+    Not(in=instruction[15], out=isA);
+
+    // A register: takes the constant (A-instr) or the ALU output (C-instr)
+    Mux16(a=instruction, b=aluOut, sel=instruction[15], out=aIn);
+    Or(a=isA, b=instruction[5], out=loadA);
+    ARegister(in=aIn, load=loadA, out=aOut, out[0..14]=addressM);
+
+    // Second ALU input is A or M, chosen by the a-bit
+    Mux16(a=aOut, b=inM, sel=instruction[12], out=aOrM);
+
+    // ALU control bits come straight from the c-bits
+    ALU(x=dOut, y=aOrM,
+        zx=instruction[11], nx=instruction[10],
+        zy=instruction[9],  ny=instruction[8],
+        f=instruction[7],   no=instruction[6],
+        out=aluOut, out=outM, zr=zr, ng=ng);
+
+    // D register loads only in a C-instruction with d2 = 1
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    DRegister(in=aluOut, load=loadD, out=dOut);
+
+    // Write to memory only in a C-instruction with d3 = 1
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    // Jump logic
+    Or(a=zr, b=ng, out=zeroOrNeg);
+    Not(in=zeroOrNeg, out=positive);
+    And(a=instruction[2], b=ng, out=jlt);
+    And(a=instruction[1], b=zr, out=jeq);
+    And(a=instruction[0], b=positive, out=jgt);
+    Or(a=jlt, b=jeq, out=jle);
+    Or(a=jle, b=jgt, out=jumpTrue);
+    And(a=instruction[15], b=jumpTrue, out=loadPC);
+
+    // Program counter: reset, else jump, else next line
+    PC(in=aOut, load=loadPC, inc=true, reset=reset, out[0..14]=pc);
+}
